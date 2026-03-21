@@ -1,6 +1,6 @@
 ## utilities for handling pragmas in object fields
 
-import std/[macros, tables], private/caseutils
+import std/[macros, tables], ./caseutils
 
 type
   NamePatternKind* = enum
@@ -102,7 +102,7 @@ proc apply*(pattern: NamePattern, name: string): string =
   of NameString:
     result = pattern.str
   of NameSnakeCase:
-    result = snakeCaseDynamic(name)
+    result = toSnakeCase(name)
   of NameConcat:
     if pattern.concat.len == 0: return ""
     result = apply(pattern.concat[0], name)
