@@ -108,19 +108,25 @@ proc apply*(pattern: NamePattern, name: string): string =
     result = apply(pattern.concat[0], name)
     for i in 1 ..< pattern.concat.len: result.add apply(pattern.concat[i], name)
 
+proc hasReadNames*(options: FieldMapping): bool =
+  options.readNames.len != 0
+
 proc getReadNames*(fieldName: string, options: FieldMapping, default: seq[NamePattern]): seq[string] =
   ## gives the names accepted for this field when encountered in json
   ## if none are given, this defaults to the original field name and a snake case version of it
   result = @[]
-  let names = if options.readNames.len != 0: options.readNames else: default
+  let names = if hasReadNames(options): options.readNames else: default
   for pat in names:
     let name = apply(pat, fieldName)
     if name notin result: result.add name
 
+proc hasDumpName*(options: FieldMapping): bool =
+  options.dumpName.kind == NoName
+
 proc getDumpName*(fieldName: string, options: FieldMapping, default: NamePattern): string =
   ## gives the name to dump this field in json by
   ## if not given, this defaults to the original field name
-  let name = if options.dumpName.kind != NoName: options.dumpName else: default
+  let name = if hasDumpName(options): options.dumpName else: default
   result = apply(name, fieldName)
 
 proc realBasename(n: NimNode): string =
@@ -296,8 +302,10 @@ else:
   template defaultFieldMappingPairs*[T: FieldedType](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
     defaultFieldMappingPairs(T, group)
 
-  template fieldMappingPairs*[T: FieldedType](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
+  template fieldMappingPairs*[T: HasFieldMappings](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
+    mixin fieldMappingPairs
     fieldMappingPairs(T, group)
 
   template fieldMappingTable*[T: HasFieldMappings](obj: T, group: static MappingGroup = AnyMappingGroup): Table[string, FieldMapping] =
+    mixin fieldMappingTable
     fieldMappingTable(T, group)
