@@ -1,4 +1,4 @@
-## utilities for handling pragmas in object fields
+## utilities for mapping fields of types
 
 import std/[macros, tables], ./caseutils
 
@@ -8,10 +8,10 @@ type
     NameOriginal, ## uses the field name
     NameString, ## uses custom string and ignores field name
     NameSnakeCase ## converts field name to snake case
-    # maybe raw json unquoted name
+    # maybe raw name like unquoted json
     NameConcat
   NamePattern* = object
-    ## string pattern to apply to a given field name to use in json
+    ## string pattern to apply to a given field name to use in mapping
     case kind*: NamePatternKind
     of NoName: discard
     of NameOriginal: discard
@@ -19,15 +19,15 @@ type
     of NameSnakeCase: discard
     of NameConcat: concat*: seq[NamePattern]
   FieldMapping* = object
-    ## json serialization/deserialization options for an object field
-    readNames*: seq[NamePattern]
-      ## names that are accepted for this field when encountered in json
-      ## if none are given, this defaults to the original field name and a snake case version of it
-    ignoreRead*, ignoreDump*: bool
-      ## whether or not to ignore a field when encountered in json or when dumping to json
-    dumpName*: NamePattern
-      ## name to dump this field in json by
-      ## if not given, this defaults to the original field name
+    ## mapping options for a type field
+    inputNames*: seq[NamePattern]
+      ## names that are accepted for this field when encountered in input
+      ## if none are given, a default set of names can be used instead
+    ignoreInput*, ignoreOutput*: bool
+      ## whether or not to ignore a field when encountered in input or when generating output
+    outputName*: NamePattern
+      ## name for this field in output
+      ## if not given, a default name can be used instead
     # maybe normalize case option
   FieldMappingArg* = concept
     ## argument allowed for mapping pragma
@@ -47,12 +47,12 @@ proc `<=`*(a, b: MappingGroup): bool =
     result = a == b
 
 template mapping*(options: FieldMapping) {.pragma.}
-  ## sets the json serialization/deserialization options for a field
+  ## sets the mapping options for a field
 template mapping*(options: FieldMappingArg) {.pragma.}
   ## convenience wrapper that calls `toFieldMapping` on the given argument
 
 template mapping*(group: static MappingGroup, options: FieldMapping) {.pragma.}
-  ## sets the json serialization/deserialization options for a field
+  ## sets the mapping options for a field
   ## filtered to formats encompassed by the given mapping group
 template mapping*(group: static MappingGroup, options: FieldMappingArg) {.pragma.}
   ## convenience wrapper that calls `toFieldMapping` on the given argument
@@ -70,27 +70,27 @@ proc verbatim*(): NamePattern =
   NamePattern(kind: NameOriginal)
 
 proc toFieldMapping*(options: FieldMapping): FieldMapping {.inline.} =
-  ## hook called on the argument to the `json` pragma to convert it to a full field option object
+  ## hook called on the argument to the `mapping` pragma to convert it to a full field option object
   options
 
 proc toFieldMapping*(name: NamePattern): FieldMapping =
-  ## hook called on the argument to the `json` pragma to convert it to a full field option object,
+  ## hook called on the argument to the `mapping` pragma to convert it to a full field option object,
   ## for a name pattern this sets both the serialization and deserialization name of the field to it
-  FieldMapping(readNames: @[name], dumpName: name)
+  FieldMapping(inputNames: @[name], outputName: name)
 
 proc toFieldMapping*(name: string): FieldMapping =
-  ## hook called on the argument to the `json` pragma to convert it to a full field option object,
+  ## hook called on the argument to the `mapping` pragma to convert it to a full field option object,
   ## for a string this sets both the serialization and deserialization name of the field to it
   toFieldMapping(toName(name))
 
 proc toFieldMapping*(enabled: bool): FieldMapping =
-  ## hook called on the argument to the `json` pragma to convert it to a full field option object,
+  ## hook called on the argument to the `mapping` pragma to convert it to a full field option object,
   ## for a bool this sets whether or not to enable serialization and deserialization for this field
-  FieldMapping(ignoreRead: not enabled, ignoreDump: not enabled)
+  FieldMapping(ignoreInput: not enabled, ignoreOutput: not enabled)
 
 proc ignore*(): FieldMapping =
   ## creates a field option object that ignores this field in both serialization and deserialization
-  FieldMapping(ignoreRead: true, ignoreDump: true)
+  FieldMapping(ignoreInput: true, ignoreOutput: true)
 
 proc apply*(pattern: NamePattern, name: string): string =
   ## applies a name pattern to a given name
@@ -108,25 +108,25 @@ proc apply*(pattern: NamePattern, name: string): string =
     result = apply(pattern.concat[0], name)
     for i in 1 ..< pattern.concat.len: result.add apply(pattern.concat[i], name)
 
-proc hasReadNames*(options: FieldMapping): bool =
-  options.readNames.len != 0
+proc hasInputNames*(options: FieldMapping): bool =
+  options.inputNames.len != 0
 
-proc getReadNames*(fieldName: string, options: FieldMapping, default: seq[NamePattern]): seq[string] =
-  ## gives the names accepted for this field when encountered in json
-  ## if none are given, this defaults to the original field name and a snake case version of it
+proc getInputNames*(fieldName: string, options: FieldMapping, default: seq[NamePattern]): seq[string] =
+  ## gives the names accepted for this field when encountered in input
+  ## if none are given, this defaults to the patterns in `default`
   result = @[]
-  let names = if hasReadNames(options): options.readNames else: default
+  let names = if hasInputNames(options): options.inputNames else: default
   for pat in names:
     let name = apply(pat, fieldName)
     if name notin result: result.add name
 
-proc hasDumpName*(options: FieldMapping): bool =
-  options.dumpName.kind != NoName
+proc hasOutputName*(options: FieldMapping): bool =
+  options.outputName.kind != NoName
 
-proc getDumpName*(fieldName: string, options: FieldMapping, default: NamePattern): string =
-  ## gives the name to dump this field in json by
-  ## if not given, this defaults to the original field name
-  let name = if hasDumpName(options): options.dumpName else: default
+proc getOutputName*(fieldName: string, options: FieldMapping, default: NamePattern): string =
+  ## gives the name for this field in output
+  ## if not given, this defaults to the pattern in `default`
+  let name = if hasOutputName(options): options.outputName else: default
   result = apply(name, fieldName)
 
 proc realBasename(n: NimNode): string =
@@ -168,7 +168,7 @@ proc iterFieldNames(names: var seq[(string, NimNode)], list: NimNode) =
             break doAdd
         names.add (name, prag)
   of nnkSym:
-    when defined(holojsonySymPragmaWarning):
+    when defined(holomapSymPragmaWarning):
       warning "got just sym for object field, maybe missing pragma information", list
     let name = $list
     names.add (name, nil)
