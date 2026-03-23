@@ -1,6 +1,6 @@
 ## utilities for mapping fields of types
 
-import std/[macros, tables], ./caseutils, private/macroutils
+import std/[macros, tables], ./[groups, caseutils], private/macroutils
 
 type
   NamePatternKind* = enum
@@ -32,19 +32,6 @@ type
   FieldMappingArg* = concept
     ## argument allowed for mapping pragma
     proc toFieldMapping(self: Self): FieldMapping
-  MappingGroup* = string
-    ## filter to set mapping settings for a specific format
-    ## currently just a string identifier for the format
-    ## empty allows everything
-
-const AnyMappingGroup* = MappingGroup("")
-
-proc `<=`*(a, b: MappingGroup): bool =
-  ## returns true if `a` is a subset of `b`
-  if b == AnyMappingGroup:
-    result = true
-  else:
-    result = a == b
 
 template mapping*(options: FieldMapping) {.pragma.}
   ## sets the mapping options for a field
@@ -179,16 +166,6 @@ proc matchCustomPragma(sym: NimNode): bool =
     let impl = getImpl(sym)
     result = impl != nil and impl.kind == nnkTemplateDef
 
-proc getMappingGroupFromNode(node: NimNode): MappingGroup =
-  if node.kind in {nnkStrLit..nnkTripleStrLit, nnkIdent, nnkAccQuoted, nnkSym, nnkOpenSymChoice, nnkClosedSymChoice}:
-    result = MappingGroup($node)
-  else:
-    when false:
-      # as expected does not work lol
-      result = cast[MappingGroup](node)
-    else:
-      error("invalid node for mapping group constant: " & treeRepr(node), node)
-
 proc buildFieldMappingPairs*(obj: NimNode, group: MappingGroup): NimNode =
   var names: seq[(string, NimNode)] = @[]
   var t = obj
@@ -237,7 +214,7 @@ proc buildFieldMappingPairs*(obj: NimNode, group: MappingGroup): NimNode =
         if p.kind in nnkPragmaCallKinds and p.len > 0 and p[0].kind == nnkSym and matchCustomPragma(p[0]):
           let def = p[0].getImpl[3]
           let arg = if def.len == 3: p[2] else: p[1] 
-          let filter = if def.len == 3: getMappingGroupFromNode(p[1]) else: AnyMappingGroup
+          let filter = if def.len == 3: getMappingGroupFromLiteral(p[1]) else: AnyMappingGroup
           if group <= filter and filter <= lastFilter:
             val = arg
             lastFilter = filter
