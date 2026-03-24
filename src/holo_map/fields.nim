@@ -136,7 +136,7 @@ type
     # XXX also maybe enum
   FieldMappingPairs* = seq[(string, FieldMapping)]
   HasFieldMappings* = concept
-    proc fieldMappings(obj: typedesc[Self], group: static MappingGroup): FieldMappingPairs
+    proc getFieldMappings(obj: typedesc[Self], group: static MappingGroup): FieldMappingPairs
 
 proc iterFieldNames(names: var seq[(string, NimNode)], list: NimNode) =
   case list.kind
@@ -268,32 +268,20 @@ proc buildFieldMappingPairs*(obj: NimNode, group: MappingGroup): NimNode =
 macro defaultFieldMappings*[T: FieldedType](obj: typedesc[T], group: static MappingGroup = AnyMappingGroup): FieldMappingPairs =
   result = buildFieldMappingPairs(obj, group)
 
-template fieldMappings*[T: FieldedType](obj: typedesc[T], group: static MappingGroup = AnyMappingGroup): FieldMappingPairs =
+template getFieldMappings*[T: FieldedType](obj: typedesc[T], group: static MappingGroup = AnyMappingGroup): FieldMappingPairs =
   ## overloadable, so that types can define their own mappings
   defaultFieldMappings(obj, group)
 
-template fieldMappingTable*[T: HasFieldMappings](obj: typedesc[T], group: static MappingGroup = AnyMappingGroup): Table[string, FieldMapping] =
-  mixin fieldMappings
-  toTable fieldMappings(obj, group)
-
 when false: # runtime overloadable?
-  macro fieldMappings*[T: FieldedType](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
+  macro getFieldMappings*[T: FieldedType](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
     result = buildFieldMappingPairs(obj, group)
-
-  template fieldMappingTable*[T: FieldedType](obj: T, group: static MappingGroup = AnyMappingGroup): Table[string, FieldMapping] =
-    mixin fieldMappings
-    toTable fieldMappings(obj, group)
 else:
   template defaultFieldMappings*[T: FieldedType](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
     defaultFieldMappings(T, group)
 
-  template fieldMappings*[T: HasFieldMappings](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
-    mixin fieldMappings
-    fieldMappings(T, group)
-
-  template fieldMappingTable*[T: HasFieldMappings](obj: T, group: static MappingGroup = AnyMappingGroup): Table[string, FieldMapping] =
-    mixin fieldMappingTable
-    fieldMappingTable(T, group)
+  template getFieldMappings*[T: HasFieldMappings](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
+    mixin getFieldMappings
+    getFieldMappings(T, group)
 
 proc toUnique[T](x: openArray[T]): seq[T] =
   result = newSeqOfCap[T](x.len)
@@ -428,7 +416,7 @@ template mapFieldOutput*[T: FieldedType](
   ## 
   ## if `normalizer` is not `nil`, calls it for both `key` and the generated input names
   const fieldTable = toTable fields
-  for k, e in v.fieldPairs:
+  for k, e in fieldPairs(when T is ref: v[] else: v):
     const options = fieldTable.getOrDefault(k)
     when not options.output.ignore:
       const outputName = wrapNormalizerMacro(normalizer, getOutputName(k, options, defaultOutput))
