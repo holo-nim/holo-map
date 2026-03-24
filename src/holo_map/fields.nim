@@ -287,23 +287,53 @@ else:
     mixin fieldMappingTable
     fieldMappingTable(T, group)
 
+proc toUnique[T](x: openArray[T]): seq[T] =
+  result = newSeqOfCap[T](x.len)
+  for a in x:
+    if a notin result:
+      result.add(x)
+
+proc isNilAst(n: NimNode): bool =
+  n.isNil or n.kind == nnkNilLit or n.eqIdent"nil"
+
+proc wrapNormalizer(normalizer, n: NimNode): NimNode =
+  if not isNilAst(normalizer):
+    newCall(normalizer, n)
+  else:
+    n
+
+macro wrapNormalizerMacro(normalizer: typed, n: untyped): untyped =
+  result = wrapNormalizer(normalizer, n)
+
+proc addInputNamesToBranch(branch: NimNode, fieldName: string, options: FieldMapping, normalizer: NimNode, defaultInputs: seq[NamePattern]) =
+  let inputNames = getInputNames(fieldName, options, defaultInputs)
+  if isNilAst(normalizer):
+    for name in inputNames:
+      branch.add newLit(name)
+  else:
+    var namesNode = newNimNode(nnkBracket, normalizer)
+    for name in inputNames:
+      namesNode.add newCall(normalizer, newLit(name))
+    branch.add newCall(bindSym"toUnique", namesNode)
+
 macro mapFieldInput*[T: FieldedType](
     v: T, key: string,
     # type of v not used yet but maybe in the future to manually complete `fields` XXX #5
     fields: static FieldMappingPairs,
+    normalizer: typed,
     defaultInputs: static seq[NamePattern],
     templToCall, elseBody: untyped): untyped =
   ## calls `templToCall` with the address of the mapped field of `v`
+  ## 
+  ## if `normalizer` is not `nil`, calls it for both `key` and the generated input names
   ##
   ## warning: currently requires importing `std/importutils` and calling `privateAccess` on the object type to work with private fields
   result = newNimNode(nnkCaseStmt, key)
-  result.add key
+  result.add wrapNormalizer(normalizer, key)
   for fieldName, options in fields.items:
     if not options.input.ignore:
       var branch = newTree(nnkOfBranch)
-      let inputNames = getInputNames(fieldName, options, defaultInputs)
-      for name in inputNames:
-        branch.add newLit(name)
+      addInputNamesToBranch(branch, fieldName, options, normalizer, defaultInputs)
       branch.add newCall(templToCall, newDotExpr(copy v, ident fieldName))
       #branch.add crudeReplaceIdent(body, "field", newDotExpr(copy v, ident fieldName))
       result.add branch
@@ -317,6 +347,7 @@ import ./variants
 macro mapInputVariantFieldName*[T: VariantType](
     obj: typedesc[T], key: string,
     fields: static FieldMappingPairs,
+    normalizer: typed,
     defaultInputs: static seq[NamePattern],
     innerFieldTempl, variantFieldTempl, elseBody: untyped) =
   ## finds the variant field name for `key` based on `variants`:
@@ -326,8 +357,10 @@ macro mapInputVariantFieldName*[T: VariantType](
   ##   2. the original identifier of the variant field
   ##   3. the first acceptable value of the variant field for the branch that the inner field is in
   ## otherwise, emits `elseBody`
+  ## 
+  ## if `normalizer` is not `nil`, calls it for both `key` and the generated input names
   result = newNimNode(nnkCaseStmt, key)
-  result.add key
+  result.add wrapNormalizer(normalizer, key)
   let variants = buildVariants(obj)
   let mappingTable = toTable fields
   if variants.variants.len == 0:
@@ -337,18 +370,14 @@ macro mapInputVariantFieldName*[T: VariantType](
       let options = mappingTable.getOrDefault(variant.discrimName, FieldMapping())
       if not options.input.ignore:
         var branch = newNimNode(nnkOfBranch, variantFieldTempl)
-        let inputNames = getInputNames(variant.discrimName, options, defaultInputs)
-        for name in inputNames:
-          branch.add newLit name
+        addInputNamesToBranch(branch, variant.discrimName, options, normalizer, defaultInputs)
         branch.add newCall(variantFieldTempl, ident variant.discrimName)
         result.add branch
     for fieldName, branchIndex in variant.fieldsToBranch:
       let options = mappingTable.getOrDefault(fieldName, FieldMapping())
       if not options.input.ignore:
         var branch = newNimNode(nnkOfBranch, variantFieldTempl)
-        let inputNames = getInputNames(fieldName, options, defaultInputs)
-        for name in inputNames:
-          branch.add newLit name
+        addInputNamesToBranch(branch, fieldName, options, normalizer, defaultInputs)
         let discrimValue = firstValue(variant.branches[branchIndex])
         branch.add newCall(innerFieldTempl,
           ident fieldName,
@@ -363,6 +392,7 @@ macro mapInputVariantFieldName*[T: VariantType](
 template mapInputVariantField*[T: VariantType](
     obj: T, key: string,
     fields: static FieldMappingPairs,
+    normalizer: typed,
     defaultInputs: static seq[NamePattern],
     innerFieldTempl, variantFieldTempl, elseBody: untyped) =
   ## finds the variant for `key` in `obj`:
@@ -372,27 +402,38 @@ template mapInputVariantField*[T: VariantType](
   ##   2. the address of the variant field
   ##   3. the first acceptable value of the variant field for the branch that the inner field is in
   ## otherwise, emits `elseBody`
+  ## 
+  ## if `normalizer` is not `nil`, calls it for both `key` and the generated input names
   template onInnerField(f, discrimName, discrimValue) =
     `innerFieldTempl`(`obj`.`f`, `obj`.`discrimName`, `discrimValue`)
   template onVariantField(f) =
     `variantFieldTempl`(`obj`.`f`)
-  mapInputVariantFieldName(T, key, fields, defaultInputs, onInnerField, onVariantField, elseBody)
+  mapInputVariantFieldName(T, key, fields, normalizer, defaultInputs, onInnerField, onVariantField, elseBody)
 
 template mapFieldOutput*[T: FieldedType](
     v: T,
     fields: static FieldMappingPairs,
+    normalizer: typed,
     defaultOutput: static NamePattern,
     templToCall: untyped): untyped =
   ## calls `templToCall` with: 1. the mapped field address from `v`, 2. the mapped field name
+  ## 
+  ## if `normalizer` is not `nil`, calls it for both `key` and the generated input names
   const fieldTable = toTable fields
   for k, e in v.fieldPairs:
     const options = fieldTable.getOrDefault(k)
     when not options.output.ignore:
-      const outputName = getOutputName(k, options, defaultOutput)
+      const outputName = wrapNormalizerMacro(normalizer, getOutputName(k, options, defaultOutput))
       templToCall(e, outputName)
 
-macro mapEnumFieldInput*[T: enum](t: typedesc[T], s: string, mappings: static FieldMappingPairs, templToCall: untyped) =
+macro mapEnumFieldInput*[T: enum](
+  t: typedesc[T], s: string,
+  mappings: static FieldMappingPairs,
+  normalizer: typed,
+  templToCall: untyped) =
   ## calls `templToCall` with the mapped enum field from `s`
+  ## 
+  ## if `normalizer` is not `nil`, calls it for both `key` and the generated input names
   # XXX missing default arg because of enum string value #6
   var impl = getTypeInst(t)
   while true:
@@ -413,7 +454,7 @@ macro mapEnumFieldInput*[T: enum](t: typedesc[T], s: string, mappings: static Fi
     error "expected enum type for type impl of " & repr(t), impl
   let mappingTable = toTable(mappings)
   result = newNimNode(nnkCaseStmt, s)
-  result.add s
+  result.add wrapNormalizer(normalizer, s)
   for f in impl:
     # copied from std/enumutils.genEnumCaseStmt
     var fieldSym: NimNode = nil
@@ -449,12 +490,24 @@ macro mapEnumFieldInput*[T: enum](t: typedesc[T], s: string, mappings: static Fi
     elif fieldStrNodes.len == 0:
       fieldStrNodes = @[newLit fieldName]
     var branch = newTree(nnkOfBranch)
-    branch.add fieldStrNodes
+    if not isNilAst(normalizer):
+      var namesNode = newNimNode(nnkBracket, normalizer)
+      for strNode in fieldStrNodes:
+        namesNode.add newCall(normalizer, strNode)
+      branch.add newCall(bindSym"toUnique", namesNode)
+    else:
+      branch.add fieldStrNodes
     branch.add newCall(templToCall, newDotExpr(t, fieldSym))
     result.add branch
 
-macro mapEnumFieldOutput*[T: enum](t: typedesc[T], v: T, mappings: static FieldMappingPairs, templToCall: untyped) =
+macro mapEnumFieldOutput*[T: enum](
+  t: typedesc[T], v: T,
+  mappings: static FieldMappingPairs,
+  normalizer: typed,
+  templToCall: untyped) =
   ## calls `templToCall` with the mapped field name of `v`
+  ## 
+  ## if `normalizer` is not `nil`, calls it for both `key` and the generated input names
   # XXX missing default arg because of enum string value #6
   var impl = getTypeInst(v)
   while true:
@@ -508,6 +561,7 @@ macro mapEnumFieldOutput*[T: enum](t: typedesc[T], v: T, mappings: static FieldM
       fieldStrNode = newLit apply(mapping.output.name, fieldName)
     elif fieldStrNode == nil or fieldStrNode.kind notin {nnkStrLit..nnkTripleStrLit}:
       fieldStrNode = newLit fieldName
+    fieldStrNode = wrapNormalizer(normalizer, fieldStrNode)
     result.add newTree(nnkOfBranch,
       newDotExpr(t, fieldSym),
       newCall(templToCall, fieldStrNode))
