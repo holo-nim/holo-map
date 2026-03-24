@@ -265,19 +265,19 @@ proc buildFieldMappingPairs*(obj: NimNode, group: MappingGroup): NimNode =
             FieldMapping()
   result = newCall(bindSym"@", result)
 
-macro defaultFieldMappings*[T: FieldedType](obj: typedesc[T], group: static MappingGroup = AnyMappingGroup): FieldMappingPairs =
+macro getDefaultFieldMappings*[T: FieldedType](obj: typedesc[T], group: static MappingGroup = AnyMappingGroup): FieldMappingPairs =
   result = buildFieldMappingPairs(obj, group)
 
 template getFieldMappings*[T: FieldedType](obj: typedesc[T], group: static MappingGroup = AnyMappingGroup): FieldMappingPairs =
   ## overloadable, so that types can define their own mappings
-  defaultFieldMappings(obj, group)
+  defaultFieldgetDefaultFieldMappingsMappings(obj, group)
 
 when false: # runtime overloadable?
   macro getFieldMappings*[T: FieldedType](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
     result = buildFieldMappingPairs(obj, group)
 else:
-  template defaultFieldMappings*[T: FieldedType](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
-    defaultFieldMappings(T, group)
+  template getDefaultFieldMappings*[T: FieldedType](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
+    getDefaultFieldMappings(T, group)
 
   template getFieldMappings*[T: HasFieldMappings](obj: T, group: static MappingGroup = AnyMappingGroup): untyped =
     mixin getFieldMappings
