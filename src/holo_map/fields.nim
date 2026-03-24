@@ -67,6 +67,14 @@ proc toFieldMapping*(options: FieldMapping): FieldMapping {.inline.} =
   ## hook called on the argument to the `mapping` pragma to convert it to a full field option object
   options
 
+proc toFieldMapping*(input: InputFieldMapping): FieldMapping {.inline.} =
+  ## hook called on the argument to the `mapping` pragma to convert it to a full field option object
+  FieldMapping(input: input)
+
+proc toFieldMapping*(output: OutputFieldMapping): FieldMapping {.inline.} =
+  ## hook called on the argument to the `mapping` pragma to convert it to a full field option object
+  FieldMapping(output: output)
+
 proc toFieldMapping*(name: NamePattern): FieldMapping =
   ## hook called on the argument to the `mapping` pragma to convert it to a full field option object,
   ## for a name pattern this sets both the serialization and deserialization name of the field to it
