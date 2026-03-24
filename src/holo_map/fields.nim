@@ -438,8 +438,8 @@ macro mapEnumFieldInput*[T: enum](
   t: typedesc[T], s: string,
   mappings: static FieldMappingPairs,
   normalizer: typed,
-  templToCall: untyped) =
-  ## calls `templToCall` with the mapped enum field from `s`
+  templToCall, elseBody: untyped) =
+  ## calls `templToCall` with the mapped enum field from `s`, emits `elseBody` if no such enum field exists
   ## 
   ## if `normalizer` is not `nil`, calls it for both `key` and the generated input names
   # XXX missing default arg because of enum string value #6
@@ -507,6 +507,7 @@ macro mapEnumFieldInput*[T: enum](
       branch.add fieldStrNodes
     branch.add newCall(templToCall, newDotExpr(t, fieldSym))
     result.add branch
+  result.add(newTree(nnkElse, elseBody))
 
 macro mapEnumFieldOutput*[T: enum](
   t: typedesc[T], v: T,
@@ -573,3 +574,4 @@ macro mapEnumFieldOutput*[T: enum](
     result.add newTree(nnkOfBranch,
       newDotExpr(t, fieldSym),
       newCall(templToCall, fieldStrNode))
+  # else branch not allowed anyway
