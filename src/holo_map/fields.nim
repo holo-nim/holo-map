@@ -278,7 +278,11 @@ template getActualFieldMappings*[U: HasFieldMappings, T: (ref U) and not HasFiel
   getFieldMappings(U, group)
 
 template getActualFieldMappings*[T: FieldedType and not HasFieldMappings](obj: typedesc[T], group: static MappingGroup = AnyMappingGroup): FieldMappingPairs =
-  getDefaultFieldMappings(T, group)
+  when T isnot ref and (ref T) is HasFieldMappings:
+    mixin getFieldMappings
+    getFieldMappings(ref T, group)
+  else:
+    getDefaultFieldMappings(T, group)
 
 proc toUnique[T](x: openArray[T]): seq[T] =
   result = newSeqOfCap[T](x.len)
