@@ -49,4 +49,5 @@ proc getMappingGroupFromLiteral*(obj: NimNode): MappingGroup =
       warning("unknown field in mapping group literal: " & fieldName, obj[i])
 
 # common formats, won't be needed if imperative declarations are implemented
+const Binary* = MappingGroup(id: "binary", mimeType: "application/octet-stream", parents: @[])
 const Json* = MappingGroup(id: "json", mimeType: "application/json", parents: @[])
