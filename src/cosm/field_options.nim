@@ -133,6 +133,7 @@ type
   FieldedType* = (object | ref object | tuple)
     # XXX also maybe enum
   FieldMappingPairs* = seq[(string, FieldMapping)]
+    # XXX maybe use NimNode for name too to make use of eqIdent performance
   HasFieldMappings* = concept
     ## implement to override mappings for a type
     proc getFieldMappings(obj: typedesc[Self], group: static MappingGroup): FieldMappingPairs
