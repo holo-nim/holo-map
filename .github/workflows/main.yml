@@ -34,6 +34,7 @@ jobs:
         with:
           nim-version: devel
           use-nightlies: true
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: install nimbleutils
         run: nimble install -y https://github.com/metagn/nimbleutils@#HEAD
